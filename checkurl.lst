@@ -1,0 +1,16 @@
+WebSiteStatusCheck チェック対象URLリスト
+
+・空行は無視する。
+
+・カンマのない行は無視する。
+ (カンマを入れなければコメント代わりに利用可）
+
+
+### 外部接続確認
+Yahoo(外部接続確認）,https://www.yahoo.co.jp/
+Google(外部接続確認）,https://www.google.co.jp/
+
+### テスト用
+ダミー,https://example.com
+ダミー404,https://httpbin.org/status/404
+存在しないURL,http://www.xxxhogehogexxxx.jp/

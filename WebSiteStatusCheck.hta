@@ -1,0 +1,410 @@
+<!--
+
+WebSiteStatusCheck.hta
+(Webサイト死活監視ツール)
+
+-->
+
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=9" />
+    <meta name="description" content="WebSiteStatusCheck">
+    <title>WebSiteStatusCheck</title>
+    <hta:application id="WebSiteStatusCheck"
+      applicationName="WebSiteStatusCheck"
+      icon="osk.exe"
+      border="thin"
+      sysmenu="no"
+      borderStyle="static"
+      innerBorder="yes"
+      scroll="no"
+      scrollFlat="yes"
+      maximizeButton="no"
+      minimizeButton="no"
+      showInTaskbar="Yes"
+      selection="yes"
+      contextMenu="no"
+      singleInstance="yes"
+      Header="no"
+    />
+  </head>
+  <style type="text/css">
+    *{
+      padding : 0px ;
+      margin : 0px ;
+      font-size: 15px;
+    }
+    body , html {
+      height: 100%;
+    }
+    #Header{
+      width : 600px ;
+      height : 25px ;
+      padding : 15px ;
+      margin :  8px auto ;
+      background-color : skyblue ;
+      border : solid 1px skyblue ;
+      border-radius : 12px ;
+      -ms-border-radius : 12px ;
+    }
+    .auto {
+      color : green;
+    }
+    .stop {
+      color : gray;
+    }
+    .chk {
+      color : red;
+    }
+
+    #Main{
+      width : 630px ;
+      height : 320px ;
+      margin : 0 auto ;
+      overflow : auto ;
+    }
+    table{
+      border-collapse:collapse;
+      width : 600px ;
+      margin: 0 auto;
+    }
+    td,th{
+      border:1px solid #ccc;
+      padding: 5px;
+    }
+    th{
+      background:#EFEFEF;
+    }
+    a {
+      color : black;
+      text-decoration: none;
+    }
+    .ok {
+      color : blue;
+    }
+    .ng {
+      color : red;
+    }
+
+    #Footer{
+      width : 630px ;
+      margin : 5px auto ;
+      text-align:right;
+      overflow: hidden;
+    }
+    .chk_btn{
+      display: inline-block;
+      padding: 0.5em 1em;
+      text-decoration: none;
+      background: #668ad8;
+      color: #FFF;
+      border-bottom: solid 4px #627295;
+      border-radius: 3px;
+      float: right;
+    }
+    .exit_btn{
+      display: inline-block;
+      padding: 0.5em 1em;
+      text-decoration: none;
+      background: #c0c0c0;
+      color: #696969;
+      border-bottom: solid 4px #808080;
+      border-radius: 3px;
+      float: right;
+    }
+  </style>
+  <body onLoad="initLoad();">
+
+<!-- ＝＝＝＝＝＝＝＝＝＝＝＝ Script ＝＝＝＝＝＝＝＝＝＝＝＝ -->
+
+<script language="javascript">
+// Ctrl+マウスホイールによる文字サイズの変更禁止
+document.body.onmousewheel = function() {return !window.event.ctrlKey;};
+
+// autoReloadOn/Off用TimerID格納変数
+var timerID;
+
+// 起動時に画面サイズをリサイズし画面中央に表示する。
+function initLoad(){
+
+  var myWidth =680;  //画面横幅
+  var myHeight=480;  //画面高さ
+
+  // ウィンドウリサイズ
+  window.resizeTo(myWidth,myHeight);
+  // ウィンドウを中央に移動
+  window.moveTo(
+    (window.screen.width - myWidth )/2,
+    (window.screen.height - myHeight ) /2
+  );
+}
+
+// 自動更新ON(5分間隔／300×1000ミリ秒)
+function autoReloadOn(){
+  timerID = setInterval("go_wget()",300*1000);
+}
+
+// 自動更新OFF
+function autoReloadOff(){
+  clearInterval(timerID);
+}
+
+</script>
+
+<script language="VBScript">
+Option Explicit
+'ヘッダーエリアHTML
+Dim HeaderHTML
+Dim LastUpdateTime
+Dim NextCheckTime
+'メインエリアHTML
+Dim MainHTML
+'フッターエリアHTML
+Dim FooterHTML
+'カレントフォルダパス取得
+Dim objWsh
+    Set objWsh = CreateObject("WScript.Shell")
+Dim strDir
+    strDir = objWsh.CurrentDirectory
+Set objWsh = nothing
+'URLリストパス
+Dim strUrlList
+    strUrlList = strDir & "\" & "checkurl.lst"
+'ログ出力フォルダ
+'Const strLogfolder = "C:\Log\WebSiteStatus"
+Dim strLogfolder
+    strLogfolder = strDir
+'ログ出力ファイルパス
+Dim strOutputlog
+    strOutputlog = strLogfolder & "\" & Replace(Date(),"/","") & "_" & "httpStatusCheck.log"
+'URLリスト配列格納
+Dim arrUrlList
+    arrUrlList = readURL(strUrlList)
+'エラーカウント
+Dim errCnt
+
+'---------------------------------------------
+'check開始
+Sub go_Wget()
+    Call autoReloadOff()
+    Call UpdateHeader_checking
+    MainHTML = ""
+    Call UpdateMain
+    MainHTML = "<table>"
+    Dim strLine
+    errCnt = 0
+    For Each strLine In arrUrlList
+        Call procCheck(strLine)
+    Next
+    MainHTML = MainHTML & "</table>"
+    Call UpdateMain
+    Call UpdateHeader_auto
+    Call autoReloadOn()
+    If errCnt > 0 Then
+        Call AlertPopup(errCnt)
+    End If
+End Sub
+
+'check停止
+Sub stop_Wget()
+    Call UpdateHeader_stopping
+    Call autoReloadOff()
+    Msgbox "自動更新を停止しました。",,"WebSiteStatusCheck"
+End Sub
+
+'exitボタン動作
+Sub exit_Program 
+    Call autoReloadOff()
+    Msgbox "WebSiteStatusCheckを終了します",,"WebSiteStatusCheck"
+    window.close() 
+End Sub 
+
+'---------------------------------------------
+'チェック対象URLの読み込み処理
+Function readURL( ByVal filename )
+    Dim objFSO
+        Set objFSO = CreateObject("Scripting.FileSystemObject")
+    Dim objInputText
+        Set objInputText = objFso.OpenTextFile( filename, 1 )
+    Dim i
+        i = 0
+    Dim strAry()
+    Do Until objInputText.AtEndOfStream
+        Dim strLine
+        strLine = objInputText.ReadLine
+        IF Len(strLine) * Instr(strLine, ",") > 0 Then
+            ReDim Preserve strAry( i )
+            strAry( i ) = strLine
+            i = i + 1
+        End If
+    Loop
+
+    objInputText.close
+    Set objInputText = Nothing
+    Set objFSO = Nothing
+
+    readURL = strAry
+End Function
+
+'疎通確認
+Sub procCheck(strLine)
+    Dim strSite, strStatus, strFcolor, objHTTP, strLogLine
+    strSite = Split(strLine , "," )
+
+    Set objHTTP = CreateObject("MSXML2.ServerXMLHTTP")
+    objHTTP.Open "GET", strSite(1), False
+    'タイムアウト値(ミリ秒）resolveTimeout, connectTimeout, sendTimeout ,reciveTimeout
+    objHTTP.SetTimeouts 5*1000, 5*1000, 2*1000, 2*1000
+    '証明書警告の回避
+    objHTTP.setOption 2, 13056
+      'SXH_OPTION_IGNORE_SERVER_SSL_CERT_ERROR_FLAGS : 2
+      'SXH_SERVER_CERT_IGNORE_ALL_SERVER_ERRORS : 13056
+    On Error Resume Next
+    objHTTP.Send
+    If Err.Number <> 0 Then
+        strStatus = "Error"
+        strFcolor = "ng"
+        errCnt = errCnt + 1
+        Err.Clear
+        ElseIf objHTTP.Status = 200 Then
+            strStatus = "OK."
+            strFcolor = "ok"
+        '認証が必要なページ用は「401 Unauthorized」でOKとする
+        ElseIf objHTTP.Status = 401 Then
+            strStatus = "OK(unAuth)."
+            strFcolor = "ok"
+        Else
+            strStatus = "NG(" & objHTTP.Status & ")."
+            strFcolor = "ng"
+            errCnt = errCnt + 1
+    End If
+    On Error Goto 0
+
+    Set objHTTP = nothing
+
+    MainHTML = MainHTML & "<tr>"
+    MainHTML = MainHTML & "<th>"
+    MainHTML = MainHTML & strSite(0)
+    MainHTML = MainHTML & "</th>"
+    MainHTML = MainHTML & "<td>"
+    MainHTML = MainHTML & "<a href=""" & strSite(1) & """>"
+    MainHTML = MainHTML & strSite(1)
+    MainHTML = MainHTML & "</a>"
+    MainHTML = MainHTML & "</td>"
+    MainHTML = MainHTML & "<td>"
+    MainHTML = MainHTML & "<p class=""" & strFcolor & """>"
+    MainHTML = MainHTML & strStatus
+    MainHTML = MainHTML & "</p>"
+    MainHTML = MainHTML & "</td>"
+    MainHTML = MainHTML & "</tr>"
+    
+    strLogLine = strSite(0) & vbTab & strSite(1) & vbTab & strStatus
+    OutputText(strLogLine)
+End Sub
+
+'更新(自動更新待機中)
+Sub UpdateHeader_auto
+    HeaderHTML =""
+    HeaderHTML = HeaderHTML & "<p class=""auto"">自動更新待機中</p>"
+    HeaderHTML = HeaderHTML & "<p>LastUpdate:" & LastUpdateTime & " / NextCheck:" & NextCheckTime & "</p>" 
+    Header.InnerHTML = HeaderHTML
+
+    FooterHTML =""
+    FooterHTML = FooterHTML & "<p><input class=""exit_btn"" type=""button"" value=""exit"" style=""width:100px;height:40px"" onClick=""exit_Program()"" /></p>"
+    FooterHTML = FooterHTML & "<p><input class=""chk_btn"" type=""button"" value=""stop"" style=""width:100px;height:40px"" onClick=""stop_wget()"" /></p>"
+    Footer.InnerHTML = FooterHTML
+
+    Call Reflesh
+End Sub 
+
+'更新(自動更新停止中)
+Sub UpdateHeader_stopping
+    HeaderHTML =""
+    HeaderHTML = HeaderHTML & "<p class=""stop"">自動更新停止中</p>"
+    HeaderHTML = HeaderHTML & "<p>LastUpdate:" & LastUpdateTime & "</p>" 
+    Header.InnerHTML = HeaderHTML
+
+    FooterHTML =""
+    FooterHTML = FooterHTML & "<p><input class=""exit_btn"" type=""button"" value=""exit"" style=""width:100px;height:40px"" onClick=""exit_Program()"" /></p>"
+    FooterHTML = FooterHTML & "<p><input class=""chk_btn"" type=""button"" value=""check"" style=""width:100px;height:40px"" onClick=""go_wget()"" /></p>"
+    Footer.InnerHTML = FooterHTML
+
+    Call Reflesh
+End Sub 
+
+'更新(チェック中)
+Sub UpdateHeader_checking
+    HeaderHTML =""
+    HeaderHTML = HeaderHTML & "<p class=""chk"">Checking now... </p>"
+    Header.InnerHTML = HeaderHTML
+
+    FooterHTML =""
+    FooterHTML = FooterHTML & "<p><input class=""exit_btn"" type=""button"" value=""exit"" style=""width:100px;height:40px"" onClick=""exit_Program()"" /></p>"
+    FooterHTML = FooterHTML & "<p><input class=""chk_btn"" type=""button"" value="" "" style=""width:100px;height:40px"" /></p>"
+    Footer.InnerHTML = FooterHTML
+
+    Call Reflesh
+
+    LastUpdateTime = Right("0" & Hour(Now()),2) & ":" & Right("0" & Minute(Now()),2)
+    NextCheckTime = Right("0" & Hour(DateAdd("n", 5, Now() ) ), 2) & ":" & Right("0" & Minute(DateAdd("n", 5, Now() ) ), 2)
+    OutputText("")
+    OutputText(LastUpdateTime)
+End Sub 
+
+'Main更新
+Sub UpdateMain
+    Main.InnerHTML = MainHTML
+    Call Reflesh
+End Sub 
+
+'テキストファイルへ出力
+Sub OutputText(ByVal strMsg)
+    Dim objFSO
+        Set objFSO = CreateObject("Scripting.FileSystemObject")
+    Dim objOutputText
+        Set objOutputText = objFSO.OpenTextFile( strOutputlog, 8, True)
+
+    objOutputText.write strMsg    
+    objOutputText.write vbCrLf
+
+    objOutputText.close
+    Set objOutputText = Nothing 
+    Set objFSO = Nothing
+End Sub 
+
+'アラートポップアップ
+Sub AlertPopup(ByVal errCnt)
+    Dim objWsh
+        Set objWsh = CreateObject("WScript.Shell")
+    objWsh.Run "alert.vbs " & errCnt
+    Set objWsh = Nothing
+End Sub
+
+'リフレッシュ
+Sub Reflesh
+    Dim objWsh
+        Set objWsh = CreateObject("WScript.Shell")
+    objWsh.Run "cmd /c", 0, True
+    Set objWsh = Nothing
+End Sub
+
+</script>
+
+<!-- ＝＝＝＝＝＝＝＝＝＝＝＝ Script ＝＝＝＝＝＝＝＝＝＝＝＝ -->
+
+
+    <div id="Header">
+    </div>
+
+    <div id="Main">
+    </div>
+
+    <div id="Footer">
+      <p><input class="exit_btn" type="button" value="exit" style="width:100px;height:40px" onClick="exit_Program()" /></p>
+      <p><input class="chk_btn" type="button" value="check" style="width:100px;height:40px" onClick="go_wget()" /></p>
+    </div>
+
+  </body>
+
+</html>
